@@ -6841,7 +6841,7 @@ local Lang = {
         AutoPreview = "Auto Preview", ShowCounts = "Show Counts",
         ReplaceTool = "Give Change Tool", PaintPlus = "Give Paint+",
         DragonH = "Dragon Harpoon", CookieW = "Cookie Wheels",
-        MegaT = "Orange Mega Turbines", PineT = "Buy Pine Tree",
+        PineT = "Buy Pine Tree",
         EasterTP = "Easter Event Place", ChristmasTP = "Christmas Event Place",
         TestTP = "Test Place",
         PaintPlusTitle = "Paint+", ResetSel = "Reset",
@@ -13498,7 +13498,6 @@ local function createUI()
     makeLabel("SHOP", miscFr)
     makeBtn("DragonH", "Dragon Harpoon", miscFr, function() workspace.PromptRobuxEvent:InvokeServer(1109792341,"Product") end)
     makeBtn("CookieW", "Cookie Wheels", miscFr, function() workspace.PromptRobuxEvent:InvokeServer(1126385328,"Product") end)
-    makeBtn("MegaT", "Orange Mega Turbines", miscFr, function() workspace.PromptRobuxEvent:InvokeServer(139121474,"Product") end)
     makeBtn("PineT", "Buy Pine Tree", miscFr, function() workspace.ItemBoughtFromShop:InvokeServer("PineTree",1) end)
 
     makeLabel("TELEPORTS", miscFr)
