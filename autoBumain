@@ -13550,13 +13550,13 @@ local function createUI()
 
     local betaIcon = Instance.new("TextLabel")
     betaIcon.Size = UDim2.new(1, 0, 0, 40); betaIcon.BackgroundTransparency = 1
-    betaIcon.Text = "\239\154\160 BETA \226\150\184 COMING SOON"
+    betaIcon.Text = "BETA COMING SOON"
     betaIcon.TextColor3 = Settings.primaryColor; betaIcon.TextSize = 18; betaIcon.Font = Enum.Font.GothamBold
     betaIcon.TextXAlignment = Enum.TextXAlignment.Center; betaIcon.LayoutOrder = 1; betaIcon.Parent = sdContent
 
     local betaDesc = Instance.new("TextLabel")
     betaDesc.Size = UDim2.new(1, 0, 0, 60); betaDesc.BackgroundTransparency = 1
-    betaDesc.Text = "Script Saver — save and copy scripts.\nComing soon!"
+    betaDesc.Text = "Script stealer.\nComing soon!"
     betaDesc.TextColor3 = Colors.Text; betaDesc.TextSize = 12; betaDesc.Font = Enum.Font.GothamMedium
     betaDesc.TextWrapped = true; betaDesc.TextXAlignment = Enum.TextXAlignment.Center; betaDesc.LayoutOrder = 2; betaDesc.Parent = sdContent
 
@@ -13585,12 +13585,12 @@ local function createUI()
         tween(stBtnScale, TweenInfo.new(0.08), {Scale = 0.97}):Play()
         task.delay(0.08, function() tween(stBtnScale, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Scale = 1}):Play() end)
         if stealerDropOpen then
-            stealerToggleBtn.Text = "Script Saver [^]"
+            stealerToggleBtn.Text = "Script Stealer"
             tween(stealerDropFrame, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                 Size = UDim2.new(1, 0, 0, DROP_FULL_H)
             }):Play()
         else
-            stealerToggleBtn.Text = "Script Saver"
+            stealerToggleBtn.Text = "Script Stealer"
             tween(stealerDropFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
                 Size = UDim2.new(1, 0, 0, 0)
             }):Play()
