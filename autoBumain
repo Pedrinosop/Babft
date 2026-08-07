@@ -3992,7 +3992,7 @@ local function saveBuildToFile(fileName, buildData)
             if val == nil then return "null" end
             if type(val) == "boolean" then return val and "true" or "false" end
             if type(val) == "number" then return tostring(val) end
-            if type(val) == "string" then return '"' .. val:gsub('\\','\\\\'):sub(1, 200) .. '"' end
+            if type(val) == "string" then return '"' .. val:gsub('\\','\\\\'):gsub('"','\\"'):gsub('\n','\\n'):gsub('\r','\\r'):gsub('\t','\\t') .. '"' end
             if type(val) ~= "table" then return "null" end
 
             local isArray = true
@@ -4159,6 +4159,11 @@ local function loadBuildFromFile(fileName)
     end
     if not json then return nil, nil end
 
+    json = json:match("^%s*(.-)%s*$") or json
+    if json:byte(1) == 0xEF and json:byte(2) == 0xBB and json:byte(3) == 0xBF then
+        json = json:sub(4)
+    end
+
     if json:find("BuilderHub") or json:find("%[Build%]") then
         local buildLine = json:match("Build%s*=%s*(%b{})")
         if buildLine then
@@ -4189,6 +4194,10 @@ local function loadBuildFromFile(fileName)
     end
 
     local ok, dec = pcall(function() return HttpService:JSONDecode(json) end)
+    if not ok or not dec then
+        local compacted = json:gsub("\r\n", " "):gsub("\n", " "):gsub("\r", " "):gsub("%s+", " ")
+        ok, dec = pcall(function() return HttpService:JSONDecode(compacted) end)
+    end
     if not ok or not dec then return nil, nil end
 
     if type(dec) == "table" and dec.Data and type(dec.Data) == "table" and not dec.format then
@@ -4273,11 +4282,6 @@ local function loadBuildFromFile(fileName)
                         if type(blocks) == "table" then
                             for _, b in ipairs(blocks) do
                                 if type(b) == "table" then
-                                    if type(b.CFrame) == "table" then
-                                        b.Position = table.concat({b.CFrame[1], b.CFrame[2], b.CFrame[3]}, ", ")
-                                        b.Rotation = "0, 0, 0"
-                                        b.CFrame = nil
-                                    end
                                     if type(b.Size) == "table" then
                                         b.Size = table.concat({b.Size[1], b.Size[2], b.Size[3]}, ", ")
                                     end
@@ -4299,7 +4303,7 @@ local function loadBuildFromFile(fileName)
                             end
                         end
                     end
-                    return dec, "Asu"
+                    return dec, "PRS"
                 end
 
                 if fb.Position or fb.position or fb.Pos or fb.pos then
@@ -4841,7 +4845,7 @@ local function tryInfMerge(slot1, slot2, expectedMinCount, statusCb)
     return false, "high ping or merge failed"
 end
 
-local BLOCKED_PROPS = {Health=true, LastGlobalTick=true}
+local BLOCKED_PROPS = {Health=true, LastGlobalTick=true, Anchored=true}
 
 local function applyNumberValues(b, numVals, propRF)
     if not numVals or not b or type(numVals) ~= "table" then return end
@@ -4921,33 +4925,34 @@ local function firePropertyRF(propRF, ...)
     return true
 end
 
-local function activateButtonBlock(buttonBlock)
+local function activateButtonBlock(buttonBlock, pistonBlock)
     if not buttonBlock then return false end
-    local ok, blockFunctions = pcall(function()
-        local scripts = ReplicatedStorage:FindFirstChild("Scripts")
-        local module = scripts and scripts:FindFirstChild("BlockFunctions")
-        if module then return require(module) end
-        return nil
-    end)
-    if not ok or not blockFunctions or type(blockFunctions.addBulkToRunQueue) ~= "function" then return false end
-    local blockData = {
-        buttonBlock,
-        true,
-        true,
-        false,
-        LocalPlayer.Character or Character,
-        true,
-        true,
-        true,
-        true,
-        true
+    local inputLocalScript = ReplicatedStorage:FindFirstChild("InputLocalScript")
+    if not inputLocalScript then return false end
+    local queueRF = inputLocalScript:FindFirstChild("QueueBlocksRequest")
+    if not queueRF then return false end
+    local currentChar = LocalPlayer.Character or Character
+    if not currentChar then return false end
+    local args = {
+        {
+            pistonBlock or buttonBlock,
+            true,
+            false,
+            buttonBlock,
+            currentChar,
+            true,
+            false,
+            true,
+            true,
+            false
+        }
     }
     return pcall(function()
-        blockFunctions.addBulkToRunQueue(LocalPlayer.UserId, {blockData})
+        queueRF:FireServer(args)
     end)
 end
 
-local function activatePistonViaQueue(pistonBlock)
+local function activatePistonViaQueue(pistonBlock, buttonBlock)
     if not pistonBlock then return false end
     local currentChar = LocalPlayer.Character or Character
     if not currentChar then return false end
@@ -4957,22 +4962,20 @@ local function activatePistonViaQueue(pistonBlock)
     if not queueRF then return false end
     local args = {
         {
-            {
-                pistonBlock,
-                true,
-                false,
-                false,
-                currentChar,
-                true,
-                false,
-                true,
-                true,
-                false
-            }
+            pistonBlock,
+            true,
+            false,
+            buttonBlock or false,
+            currentChar,
+            true,
+            false,
+            true,
+            true,
+            false
         }
     }
     return pcall(function()
-        queueRF:FireServer(unpack(args))
+        queueRF:FireServer(args)
     end)
 end
 
@@ -5243,11 +5246,11 @@ local function pasteBuild(buildData, statusCb)
     local function waitForN(minN, maxWait)
         local t0 = tick()
         local lastN, sameFor = 0, 0
-        local stableNeed = minN > 200 and 0.25 or 0.4
+        local stableNeed = minN > 200 and 0.4 or 0.6
         repeat
-            task.wait(0.12)
+            task.wait(0.15)
             local n = #folder:GetChildren()
-            if n == lastN then sameFor = sameFor + 0.12 else sameFor = 0 end
+            if n == lastN then sameFor = sameFor + 0.15 else sameFor = 0 end
             lastN = n
         until (lastN >= minN and sameFor >= stableNeed) or tick()-t0 > maxWait or stopBuild
         return lastN
@@ -5394,6 +5397,7 @@ local function pasteBuild(buildData, statusCb)
                 local regularStyled = {}
                 local funcStyled = {}
                 local paintQueue = {}
+                local unmatched = {}
 
                 local nameGroups = {}
                 for _, blk in ipairs(baseList) do
@@ -5444,6 +5448,60 @@ local function pasteBuild(buildData, statusCb)
                                         end
                                 else
                                         funcStyled[#funcStyled+1] = {block=b, worldCF=v.worldCF, v=v}
+                                end
+                        else
+                                unmatched[#unmatched+1] = v
+                        end
+                end
+
+                if #unmatched > 0 then
+                        updProg("Retrying " .. #unmatched .. " unmatched blocks...", p0 + 60)
+                        task.wait(1.5)
+                        local refreshedBase = folder:GetChildren()
+                        local refreshedGroups = {}
+                        for _, blk in ipairs(refreshedBase) do
+                                if blk and blk.Parent and blk.Name and not used[blk] then
+                                        refreshedGroups[blk.Name] = refreshedGroups[blk.Name] or {}
+                                        table.insert(refreshedGroups[blk.Name], blk)
+                                end
+                        end
+                        for _, v in ipairs(unmatched) do
+                                if stopBuild then break end
+                                local b = nil
+                                local grp = refreshedGroups[v.Name]
+                                if grp then
+                                        for j = 1, #grp do
+                                                local candidate = grp[j]
+                                                if candidate and candidate.Parent and not used[candidate] and candidate:FindFirstChild("PPart") then
+                                                        b = candidate
+                                                        used[b] = true
+                                                        break
+                                                end
+                                        end
+                                end
+                                if not b then
+                                        b = findNearest(v.Name, v.skyWorldCF and v.skyWorldCF.Position or v.worldCF.Position, refreshedBase, used)
+                                end
+                                if b and b:FindFirstChild("PPart") then
+                                        used[b] = true
+                                        if v.ID ~= nil then
+                                                placedById[v.ID] = b
+                                                placedById[tostring(v.ID)] = b
+                                        end
+                                        if v.isRegular then
+                                                if v.hasCo and v.Col then
+                                                        paintQueue[#paintQueue+1] = {b, v.Col}
+                                                end
+                                                if v.hasSz and v.Size then
+                                                        fastRescale(b, v.skyWorldCF, v.Size)
+                                                        regularStyled[#regularStyled+1] = {block=b, worldCF=v.worldCF, v=v}
+                                                else
+                                                        pcall(function() b.PPart.CFrame = v.skyWorldCF end)
+                                                        regularStyled[#regularStyled+1] = {block=b, worldCF=v.worldCF, v=v}
+                                                end
+                                        else
+                                                funcStyled[#funcStyled+1] = {block=b, worldCF=v.worldCF, v=v}
+                                        end
                                 end
                         end
                 end
@@ -5567,72 +5625,7 @@ local function pasteBuild(buildData, statusCb)
     local function applyPropertiesPhase(styledList, p0, p1, skipTransp)
         if not propertiesRF then updProg("No PropertiesTool RF, skipping props", p0) return end
 
-        local anchorOn, anchorOff, ccOn = {}, {}, {}
-        for idx, entry in ipairs(styledList) do
-            if not entry.block or not entry.v or not entry.block:FindFirstChild("PPart") then continue end
-            local v = entry.v
-            local b = entry.block
-            local isBlock = b.Name:sub(-5) == "Block"
-            local pp = b.PPart
-
-            local wantAnchor
-            if v.Anchored ~= nil then
-                wantAnchor = v.Anchored == true
-            elseif not isBlock then
-                wantAnchor = true
-            end
-            if wantAnchor ~= nil and pp.Anchored ~= wantAnchor then
-                if wantAnchor then anchorOn[#anchorOn+1] = b else anchorOff[#anchorOff+1] = b end
-            end
-
-            if not pp.CanCollide and not isSpecialPropBlock(b.Name) then
-                ccOn[#ccOn+1] = b
-            end
-        end
-
-        if #anchorOn > 0 then pcall(function() propertiesRF:InvokeServer("Anchored", anchorOn) end) end
         task.wait(0.05)
-        if #anchorOff > 0 then pcall(function() propertiesRF:InvokeServer("Anchored", anchorOff) end) end
-        task.wait(0.05)
-
-        if #ccOn > 0 then pcall(function() propertiesRF:InvokeServer("Collision", ccOn) end) end
-        task.wait(0.1)
-
-        local batchGroups = {}
-        for _, entry in ipairs(styledList) do
-            if not entry.block or not entry.v or not entry.block:FindFirstChild("PPart") then continue end
-            local v = entry.v
-            local b = entry.block
-            if not skipTransp and v.Transparency ~= nil and not isSpecialPropBlock(b.Name) then
-                local t = tonumber(v.Transparency)
-                if t then
-                    t = math.clamp(t, 0, 1)
-                    local tStr = tostring(math.floor(t * 100 + 0.5))
-                    batchGroups["Transparency"] = batchGroups["Transparency"] or {}
-                    batchGroups["Transparency"][tStr] = batchGroups["Transparency"][tStr] or {}
-                    table.insert(batchGroups["Transparency"][tStr], b)
-                end
-            end
-            if v.ShowShadow ~= nil then
-                local val = v.ShowShadow == true
-                local key = val and "1" or "0"
-                batchGroups["Cast shadow"] = batchGroups["Cast shadow"] or {}
-                batchGroups["Cast shadow"][key] = batchGroups["Cast shadow"][key] or {}
-                table.insert(batchGroups["Cast shadow"][key], b)
-            end
-        end
-        local batchDone = 0
-        for propName, groups in pairs(batchGroups) do
-            for valKey, blocks in pairs(groups) do
-                if stopBuild then break end
-                if #blocks > 0 then
-                    pcall(function() propertiesRF:InvokeServer(propName, blocks, valKey) end)
-                    batchDone = batchDone + 1
-                    if batchDone % 10 == 0 then task.wait(0.05) end
-                end
-            end
-        end
-        task.wait(0.1)
 
         local pbTotal = 0
         for _, entry in ipairs(styledList) do
@@ -5862,7 +5855,7 @@ local function pasteBuild(buildData, statusCb)
         runPlacePhase(pistonFlat, "Pistons ", 0, 15)
         if stopBuild then isBuilding = false ; setStatus("Stopped") ; return false end
         updProg("Waiting for pistons...", 16)
-        waitForN(math.floor(#pistonFlat * 0.9), math.max(3, #pistonFlat * 0.05))
+        waitForN(math.floor(#pistonFlat * 0.95), math.max(5, #pistonFlat * 0.08))
         styledPistons = runStylePhase(pistonFlat, folder:GetChildren(), {}, 18, 30)
         if stopBuild then isBuilding = false ; setStatus("Stopped") ; return false end
         updProg("Moving " .. #styledPistons .. " pistons...", 30)
@@ -5971,43 +5964,71 @@ local function pasteBuild(buildData, statusCb)
         end
         if #pistonsToActivate > 0 and not stopBuild and placeRF and myZone then
             updProg("Activating " .. #pistonsToActivate .. " pistons via button...", 50)
-            local buttonBlockID = getBlockID("Button")
-            local activationBindTool = Character:FindFirstChild("BindTool") or LocalPlayer.Backpack:FindFirstChild("BindTool")
-            local activationBindRF = activationBindTool and activationBindTool:FindFirstChild("RF")
-            local activationUnbindRF = activationBindTool and activationBindTool:FindFirstChild("UnbindRF")
-            if buttonBlockID > 0 and activationBindRF then
-                local beforeSet = {}
-                for _, b in ipairs(folder:GetChildren()) do beforeSet[b] = true end
-                local hrp = Character:FindFirstChild("HumanoidRootPart") or myZone
-                pcall(function() placeRF:InvokeServer("Button", buttonBlockID, myZone, myZone.CFrame:ToObjectSpace(CFrame.new(hrp.Position + Vector3.new(0, 5, 0))), true) end)
-                task.wait(0.5)
-                local placedBtn
-                for _, b in ipairs(folder:GetChildren()) do
-                    if not beforeSet[b] and b.Name == "Button" and b:FindFirstChild("PPart") then placedBtn = b ; break end
+            local inputLocalScript = ReplicatedStorage:FindFirstChild("InputLocalScript")
+            local queueBlocksRF = inputLocalScript and inputLocalScript:FindFirstChild("QueueBlocksRequest")
+            if queueBlocksRF then
+                for _, pd in ipairs(pistonsToActivate) do
+                    if stopBuild then break end
+                    local pistonBlock = pd.block
+                    if pistonBlock and pistonBlock.Parent and pistonBlock:FindFirstChild("PPart") then
+                        local foundBtn = nil
+                        local bt = pd.v and pd.v.BindTable
+                        if type(bt) == "table" then
+                            for _, bindRow in pairs(bt) do
+                                if type(bindRow) == "table" then
+                                    local targetBlock = placedById[bindRow[1]] or placedById[tostring(bindRow[1])]
+                                    if targetBlock and (targetBlock.Name == "Button" or targetBlock.Name == "Switch" or targetBlock.Name == "Sensor" or targetBlock.Name == "Delay") then
+                                        foundBtn = targetBlock
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                        activatePistonViaQueue(pistonBlock, foundBtn)
+                        task.wait(3)
+                    end
                 end
-                if placedBtn then
-                    local pushParts, pullParts = {}, {}
-                    for _, pd in ipairs(pistonsToActivate) do
-                        local bUp = pd.block:FindFirstChild("BindUp") or pd.block:FindFirstChild("BindUp", true)
-                        local bDn = pd.block:FindFirstChild("BindDown") or pd.block:FindFirstChild("BindDown", true)
-                        if bUp then pullParts[#pullParts + 1] = bUp end
-                        if bDn then pushParts[#pushParts + 1] = bDn end
+                updProg("Pistons activated via QueueBlocksRequest", 55)
+            else
+                local buttonBlockID = getBlockID("Button")
+                local activationBindTool = Character:FindFirstChild("BindTool") or LocalPlayer.Backpack:FindFirstChild("BindTool")
+                local activationBindRF = activationBindTool and activationBindTool:FindFirstChild("RF")
+                local activationUnbindRF = activationBindTool and activationBindTool:FindFirstChild("UnbindRF")
+                if buttonBlockID > 0 and activationBindRF then
+                    local beforeSet = {}
+                    for _, b in ipairs(folder:GetChildren()) do beforeSet[b] = true end
+                    local hrp = Character:FindFirstChild("HumanoidRootPart") or myZone
+                    pcall(function() placeRF:InvokeServer("Button", buttonBlockID, myZone, myZone.CFrame:ToObjectSpace(CFrame.new(hrp.Position + Vector3.new(0, 5, 0))), true) end)
+                    task.wait(0.5)
+                    local placedBtn
+                    for _, b in ipairs(folder:GetChildren()) do
+                        if not beforeSet[b] and b.Name == "Button" and b:FindFirstChild("PPart") then placedBtn = b ; break end
                     end
-                    local bindFirstArg = {}
-                    if #pushParts > 0 then bindFirstArg.Push = pushParts end
-                    if #pullParts > 0 then bindFirstArg.Pull = pullParts end
-                    if next(bindFirstArg) then
-                        invokeWithTimeout(activationBindRF, {bindFirstArg, placedBtn, {}, false})
-                        task.wait(0.3)
-                        activateButtonBlock(placedBtn)
-                        task.wait(0.15)
-                        activateButtonBlock(placedBtn)
-                        task.wait(2)
+                    if placedBtn then
+                        local pushParts, pullParts = {}, {}
+                        for _, pd in ipairs(pistonsToActivate) do
+                            local bUp = pd.block:FindFirstChild("BindUp") or pd.block:FindFirstChild("BindUp", true)
+                            local bDn = pd.block:FindFirstChild("BindDown") or pd.block:FindFirstChild("BindDown", true)
+                            if bUp then pullParts[#pullParts + 1] = bUp end
+                            if bDn then pushParts[#pushParts + 1] = bDn end
+                        end
+                        local bindFirstArg = {}
+                        if #pushParts > 0 then bindFirstArg.Push = pushParts end
+                        if #pullParts > 0 then bindFirstArg.Pull = pullParts end
+                        if next(bindFirstArg) then
+                            invokeWithTimeout(activationBindRF, {bindFirstArg, placedBtn, {}, false})
+                            task.wait(0.3)
+                            for _, pd in ipairs(pistonsToActivate) do
+                                if stopBuild then break end
+                                activatePistonViaQueue(pd.block, placedBtn)
+                                task.wait(3)
+                            end
+                        end
+                        pcall(function() deleteBlock(placedBtn) end)
+                        updProg("Pistons activated", 55)
+                    else
+                        updProg("Piston activation: button not found", 55)
                     end
-                    pcall(function() deleteBlock(placedBtn) end)
-                    updProg("Pistons activated", 55)
-                else
-                    updProg("Piston activation: button not found", 55)
                 end
             end
         end
@@ -6021,7 +6042,7 @@ local function pasteBuild(buildData, statusCb)
         runPlacePhase(restFlat, "Placing ", restP0, restP0 + 20)
         if stopBuild then isBuilding = false ; setStatus("Stopped") ; return false end
         updProg("Waiting for blocks...", restP0 + 21)
-        waitForN(math.floor((#pistonFlat + #restFlat) * 0.88), math.max(6, (#pistonFlat + #restFlat) * 0.02))
+        waitForN(math.floor((#pistonFlat + #restFlat) * 0.95), math.max(10, (#pistonFlat + #restFlat) * 0.04))
         local rUsed = {}
         for _, entry in ipairs(allStyled) do if entry.block then rUsed[entry.block] = true end end
         local styledRest = runStylePhase(restFlat, folder:GetChildren(), rUsed, restP0 + 23, restP0 + 50)
@@ -6048,8 +6069,40 @@ local function pasteBuild(buildData, statusCb)
             if entry.block and entry.block.Parent and entry.block.Name == "Piston" and entry.block:FindFirstChild("PPart") then
                 local ld = entry.v and entry.v.NumberValues and entry.v.NumberValues.LastDirection
                 if ld == 1 then
-                    activatePistonViaQueue(entry.block)
-                    task.wait(0.15)
+                    local foundBtn = nil
+                    local bt = entry.v and entry.v.BindTable
+                    if type(bt) == "table" then
+                        for _, bindRow in pairs(bt) do
+                            if type(bindRow) == "table" then
+                                local targetBlock = placedById[bindRow[1]] or placedById[tostring(bindRow[1])]
+                                if targetBlock and (targetBlock.Name == "Button" or targetBlock.Name == "Switch" or targetBlock.Name == "Sensor" or targetBlock.Name == "Delay") then
+                                    foundBtn = targetBlock
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if not foundBtn then
+                        for _, otherEntry in ipairs(allStyled) do
+                            if otherEntry.block and otherEntry.block.Name == "Button" and otherEntry.v and type(otherEntry.v.BindTable) == "table" then
+                                local obBt = otherEntry.v.BindTable
+                                for _, bindRow in pairs(obBt) do
+                                    if type(bindRow) == "table" and (bindRow[1] == entry.v.ID or bindRow[1] == tostring(entry.v.ID)) then
+                                        foundBtn = otherEntry.block
+                                        break
+                                    end
+                                end
+                                if foundBtn then break end
+                            end
+                        end
+                    end
+                    local ok, err = activatePistonViaQueue(entry.block, foundBtn)
+                    if not ok then
+                        pcall(function()
+                            activatePistonViaQueue(entry.block, foundBtn)
+                        end)
+                    end
+                    task.wait(3)
                 end
             end
         end
@@ -6058,7 +6111,7 @@ local function pasteBuild(buildData, statusCb)
     if not stopBuild and #allStyled > 0 then
         updProg("Waiting for blocks to settle...", 97)
         local totalCount = #allStyled
-        local maxWait = 8
+        local maxWait = 12
         local startT = tick()
         local function countSettled()
             local settledCount = 0
@@ -6294,28 +6347,18 @@ local function pasteBuild(buildData, statusCb)
             propertiesRF = propTool and propTool:FindFirstChild("SetPropertieRF") or propertiesRF
 
             if propertiesRF then
-                local anOn, anOff, ccToggleOn = {}, {}, {}
+                local ccToggleOn = {}
                 for _, entry in ipairs(nonBlockList) do
                     local b = entry.block
-                    local v = entry.v
                     local pp = b.PPart
 
                     local isConstraint = isSpecialPropBlock(b.Name)
-
-                    local wantA = (v.Anchored == nil) or (v.Anchored == true)
-                    if pp.Anchored ~= wantA then
-                        if wantA then anOn[#anOn+1] = b else anOff[#anOff+1] = b end
-                    end
 
                     if not isConstraint and not pp.CanCollide then
                         ccToggleOn[#ccToggleOn+1] = b
                     end
                 end
 
-                if #anOn > 0 then pcall(function() propertiesRF:InvokeServer("Anchored", anOn) end) end
-                task.wait(0.05)
-                if #anOff > 0 then pcall(function() propertiesRF:InvokeServer("Anchored", anOff) end) end
-                task.wait(0.05)
                 if #ccToggleOn > 0 then
                     pcall(function() propertiesRF:InvokeServer("Collision", ccToggleOn) end)
                     task.wait(0.1)
@@ -6374,27 +6417,82 @@ local function pasteBuild(buildData, statusCb)
     end
 
     if not stopBuild and propertiesRF then
-        local ccOffList = {}
+        updProg("Applying all properties post-weld-fix...", 99)
+        local postAnchorOn, postAnchorOff = {}, {}
+        local postCcOn, postCcOff = {}, {}
         for _, entry in ipairs(allStyled) do
-            if entry.block and entry.block.Parent and entry.block:FindFirstChild("PPart") and not isSpecialPropBlock(entry.block.Name) then
-                local v = entry.v
-                if v and v.CanCollide == false and entry.block.PPart.CanCollide then
-                    ccOffList[#ccOffList+1] = entry.block
+            if not entry.block or not entry.block.Parent or not entry.v or not entry.block:FindFirstChild("PPart") then continue end
+            local v = entry.v
+            local b = entry.block
+            local pp = b.PPart
+            local isBlock = b.Name:sub(-5) == "Block"
+
+            local wantAnchor
+            if v.Anchored ~= nil then
+                wantAnchor = v.Anchored == true
+            elseif not isBlock then
+                wantAnchor = true
+            end
+            if wantAnchor ~= nil and pp.Anchored ~= wantAnchor then
+                if wantAnchor then postAnchorOn[#postAnchorOn+1] = b else postAnchorOff[#postAnchorOff+1] = b end
+            end
+
+            if not isSpecialPropBlock(b.Name) then
+                if v.CanCollide == false and pp.CanCollide then
+                    postCcOff[#postCcOff+1] = b
+                elseif v.CanCollide ~= false and not pp.CanCollide then
+                    postCcOn[#postCcOn+1] = b
                 end
             end
         end
-        if #ccOffList > 0 then
-            updProg("Disabling collision on " .. #ccOffList .. " parts...", 99)
-            for i = 1, #ccOffList, 50 do
-                local chunk = {}
-                for j = i, math.min(i + 49, #ccOffList) do
-                    chunk[#chunk+1] = ccOffList[j]
+        if #postAnchorOn > 0 then pcall(function() propertiesRF:InvokeServer("Anchored", postAnchorOn) end) end
+        task.wait(0.05)
+        if #postAnchorOff > 0 then pcall(function() propertiesRF:InvokeServer("Anchored", postAnchorOff) end) end
+        task.wait(0.05)
+        if #postCcOn > 0 then pcall(function() propertiesRF:InvokeServer("Collision", postCcOn) end) end
+        task.wait(0.05)
+
+        local postTranspGroups = {}
+        local postShadowGroups = {}
+        for _, entry in ipairs(allStyled) do
+            if not entry.block or not entry.block.Parent or not entry.v or not entry.block:FindFirstChild("PPart") then continue end
+            local v = entry.v
+            local b = entry.block
+            if v.Transparency ~= nil and not isSpecialPropBlock(b.Name) then
+                local t = tonumber(v.Transparency)
+                if t then
+                    t = math.clamp(t, 0, 1)
+                    local tStr = tostring(math.floor(t * 100 + 0.5))
+                    postTranspGroups[tStr] = postTranspGroups[tStr] or {}
+                    table.insert(postTranspGroups[tStr], b)
                 end
+            end
+            if v.ShowShadow ~= nil then
+                local val = v.ShowShadow == true
+                local key = val and "1" or "0"
+                postShadowGroups[key] = postShadowGroups[key] or {}
+                table.insert(postShadowGroups[key], b)
+            end
+        end
+        for valKey, blocks in pairs(postTranspGroups) do
+            if #blocks > 0 then pcall(function() propertiesRF:InvokeServer("Transparency", blocks, valKey) end) end
+            task.wait(0.05)
+        end
+        for valKey, blocks in pairs(postShadowGroups) do
+            if #blocks > 0 then pcall(function() propertiesRF:InvokeServer("Cast shadow", blocks, valKey) end) end
+            task.wait(0.05)
+        end
+        if #postCcOff > 0 then
+            for i = 1, #postCcOff, 50 do
+                local chunk = {}
+                for j = i, math.min(i + 49, #postCcOff) do chunk[#chunk+1] = postCcOff[j] end
                 pcall(function() propertiesRF:InvokeServer("Collision", chunk) end)
             end
             task.wait(0.1)
         end
+        updProg("Properties applied", 99)
     end
+
     if #styledPistons > 0 and propertiesRF and not stopBuild then
         updProg("Piston transparency...", 99)
         local pDone = 0
@@ -7121,7 +7219,7 @@ local function createUI()
     Title.Size = UDim2.new(0.68, 0, 0, 32)
     Title.Position = UDim2.new(0, 12, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "SPRB // V5"
+    Title.Text = "SPRB // V5.1"
     Title.TextColor3 = Colors.Text
     Title.TextSize = 24
     Title.Font = Enum.Font.GothamBold
@@ -8838,7 +8936,28 @@ local function createUI()
     end
 
     makeBtn("StealBuildBtn", "Save Build", buildStealFrame, function()
-        setStatus("  Save Build - copy from player")
+        if not selectedPlayer then setStatus("  Select a player first!") ; return end
+        local fn = fileInput.Text
+        if fn == "" then setStatus("  Enter a file name!") ; return end
+        fn = fn:match("^%s*(.-)%s*$")
+        setStatus("  Copying build from " .. selectedPlayer.Name .. "...")
+        task.spawn(function()
+            local buildData = copyBuild()
+            if not buildData or not next(buildData) then
+                setStatus("  No blocks found for " .. selectedPlayer.Name)
+                return
+            end
+            local ok, fmt = saveBuildToFile(fn, buildData)
+            if ok then
+                _buildFilesCache = nil
+                if refreshFiles then refreshFiles() end
+                local count = 0
+                for _, bl in pairs(buildData) do if type(bl) == "table" then count = count + #bl end end
+                setStatus("  Saved " .. count .. " blocks to " .. fn .. " (" .. (fmt or "?") .. ")")
+            else
+                setStatus("  Save failed!")
+            end
+        end)
     end)
 
     makeBtn("BuildBtn", "Build", buildBuildFrame, function()
@@ -11045,6 +11164,7 @@ local function createUI()
             end
             return
         end
+        local hasSnapshot = recentlyPlacedBlocks and next(recentlyPlacedBlocks) ~= nil
         local rr = R.repColor and math.floor(R.repColor.R * 255) or -1
         local rg = R.repColor and math.floor(R.repColor.G * 255) or -1
         local rb = R.repColor and math.floor(R.repColor.B * 255) or -1
@@ -11064,6 +11184,7 @@ local function createUI()
             for _, b in pairs(f:GetChildren()) do
                 local pp = b:FindFirstChild("PPart")
                 if not pp then continue end
+                if hasSnapshot and not recentlyPlacedBlocks[b] then continue end
                 local match = true
                 if wantMat and b.Name ~= R.repName then match = false end
                 if wantCol and R.repColor then
@@ -11087,12 +11208,22 @@ local function createUI()
             if R.repBlock and R.repBlock.Parent then
                 addHL(R.repBlock, Colors.Red)
             end
-            local blocks = #R.savedBlocks > 0 and R.savedBlocks or (function()
+            local blocks
+            if #R.savedBlocks > 0 then
+                local valid = {}
+                for _, b in ipairs(R.savedBlocks) do
+                    if b and b.Parent and b:FindFirstChild("PPart") then
+                        valid[#valid+1] = b
+                    end
+                end
+                R.savedBlocks = valid
+                blocks = valid
+            else
                 local folder = getFolder()
-                return folder and collectReplaceBlocks(folder) or {}
-            end)()
+                blocks = folder and collectReplaceBlocks(folder) or {}
+            end
             for _, b in ipairs(blocks) do
-                if b ~= R.repBlock then
+                if b and b.Parent and b ~= R.repBlock then
                     addHL(b, Colors.ActiveBG)
                 end
             end
@@ -11364,9 +11495,9 @@ local function createUI()
         R.toggleMat = toggleMat.getState()
         R.toggleCol = toggleCol.getState()
         if R.mode == "have_both" then
+            snapshotReplaceBlocks()
             refreshHLs()
-            local folder = getFolder()
-            local count = folder and #collectReplaceBlocks(folder) or 0
+            local count = #R.savedBlocks
             infoL.Text = "SRC: " .. (R.srcName or "?") .. " -> REP: " .. (R.repName or "?") .. "\n" .. count .. " blocks | READY"
         end
     end
@@ -11527,6 +11658,8 @@ local function createUI()
             R.isRunning = false
             return
         end
+
+        snapshotReplaceBlocks()
 
         local toReplace = collectReplaceBlocks(folder)
         if #toReplace == 0 then infoL.Text = "No matching blocks!"; return end
@@ -11791,9 +11924,9 @@ local function createUI()
                 R.toggleMat = toggleMat.getState()
                 R.toggleCol = toggleCol.getState()
                 if R.mode == "have_both" then
+                    snapshotReplaceBlocks()
                     refreshHLs()
-                    local folder = getFolder()
-                    local count = folder and #collectReplaceBlocks(folder) or 0
+                    local count = #R.savedBlocks
                     infoL.Text = (R.srcName or "?") .. " -> " .. (R.repName or "?") .. "\n" .. count .. " blocks ready"
                 end
             end)
