@@ -13246,6 +13246,8 @@ Lang = {
         CreatorInfBlocks = "Creator of Inf Blocks",
         ExploitsIdeas = "Some exploits & ideas",
         GUICreator = "GUI Creator",
+        SkufDesc = "OBJ Algorithms (solid, extended wireframe)",
+        TylerDesc = "idk",
         AutoSourceMaterial = "Auto source material",
         Rendering = "Rendering",
         AutoHop = "Auto-Hop",
@@ -13618,6 +13620,8 @@ Lang = {
         CreatorInfBlocks = "Создатель Inf Blocks",
         ExploitsIdeas = "Некоторые эксплойты и идеи",
         GUICreator = "Создатель GUI",
+        SkufDesc = "Алгоритмы OBJ (solid, extended wireframe)",
+        TylerDesc = "хз",
         AutoSourceMaterial = "Авто-материал источника",
         Rendering = "Рендеринг",
         AutoHop = "Авто-Хоп",
@@ -29074,7 +29078,8 @@ function createUI()
     local function makeCreditsCard(parent)
         local creditsCard = Instance.new("Frame")
         creditsCard.Name = "CreditsCard"
-        creditsCard.Size = UDim2.new(1, -6, 0, 234)
+        creditsCard.Size = UDim2.new(1, -6, 0, 308)
+        pcall(function() creditsCard.AutomaticSize = Enum.AutomaticSize.Y end)
         creditsCard.BackgroundColor3 = Color3.fromRGB(22, 18, 30)
         creditsCard.BackgroundTransparency = 0.15
         creditsCard.BorderSizePixel = 0
@@ -29113,6 +29118,8 @@ function createUI()
             {name = "N42GER", desc = L("ExploitsIdeas"), color = Color3.fromRGB(255, 100, 140)},
             {name = "Ra", desc = L("GUICreator"), color = Color3.fromRGB(100, 180, 255)},
             {name = "So###", desc = "???????????", color = Color3.fromRGB(255, 195, 55)},
+            {name = "SkufDev", desc = L("SkufDesc") or "OBJ Algorithms (solid, extended wireframe)", color = Color3.fromRGB(100, 230, 160)},
+            {name = "Tylerzhyrden", desc = L("TylerDesc") or "idk", color = Color3.fromRGB(180, 115, 65)},
         }
 
         for idx, item in ipairs(contributors) do
